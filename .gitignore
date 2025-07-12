@@ -67,3 +67,4 @@ test_data/sensitive/
 # Coverage reports
 coverage.txt
 coverage.html
+test_data/
