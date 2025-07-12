@@ -23,6 +23,7 @@ type Config struct {
 	NoTruncate        bool
 	CPUProfile        string
 	MemProfile        string
+	Target            string
 }
 
 func NewConfig() Config {
@@ -43,6 +44,7 @@ func (c *Config) InitFlags(cmd *cobra.Command) {
 	f.BoolP("no-truncate", "", false, "don't truncate URLs or error messages")
 	f.StringP("cpuprofile", "", "", "write cpu profile to file")
 	f.StringP("memprofile", "", "", "write memory profile to file")
+	f.StringP("target", "x", "", "target URL to scan")
 	viper.BindPFlag("dir", f.Lookup("dir"))
 	viper.BindPFlag("watch", f.Lookup("watch"))
 	viper.BindPFlag("config", f.Lookup("config"))
@@ -55,7 +57,7 @@ func (c *Config) InitFlags(cmd *cobra.Command) {
 	viper.BindPFlag("no-truncate", f.Lookup("no-truncate"))
 	viper.BindPFlag("cpuprofile", f.Lookup("cpuprofile"))
 	viper.BindPFlag("memprofile", f.Lookup("memprofile"))
-
+	viper.BindPFlag("target", f.Lookup("target"))
 	viper.SetEnvPrefix("linkpatrol")
 	viper.AutomaticEnv()
 
@@ -87,6 +89,7 @@ func (c *Config) LoadFromViper() {
 	c.NoTruncate = viper.GetBool("no-truncate")
 	c.CPUProfile = viper.GetString("cpuprofile")
 	c.MemProfile = viper.GetString("memprofile")
+	c.Target = viper.GetString("target")
 }
 
 // Print is deprecated. Use logger.Config() instead for consistent logging.

@@ -5,23 +5,29 @@ import (
 	"context"
 	"os"
 	"strings"
+	"sync/atomic"
 
 	"github.com/sirprodigle/linkpatrol/internal/cache"
 )
 
 type MarkdownWalker struct {
-	cache   *cache.Cache
-	results chan<- WalkerResult
+	cache       *cache.Cache
+	results     chan<- WalkerResult
+	activeCount *atomic.Int32
 }
 
-func NewMarkdownWalker(cache *cache.Cache, results chan<- WalkerResult) *MarkdownWalker {
+func NewMarkdownWalker(cache *cache.Cache, results chan<- WalkerResult, activeCount *atomic.Int32) *MarkdownWalker {
 	return &MarkdownWalker{
-		cache:   cache,
-		results: results,
+		cache:       cache,
+		results:     results,
+		activeCount: activeCount,
 	}
 }
 
 func (w *MarkdownWalker) Walk(ctx context.Context, uri string) error {
+	w.activeCount.Add(1)
+	defer w.activeCount.Add(-1)
+
 	f, err := os.Open(uri)
 	if err != nil {
 		return err

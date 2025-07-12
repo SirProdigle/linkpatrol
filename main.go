@@ -42,9 +42,6 @@ func run(cmd *cobra.Command, args []string) error {
 		defer pprof.StopCPUProfile()
 	}
 
-	application := app.New(&cfg)
-	err := application.Run(context.Background())
-
 	if cfg.MemProfile != "" {
 		f, err := os.Create(cfg.MemProfile)
 		if err != nil {
@@ -55,6 +52,9 @@ func run(cmd *cobra.Command, args []string) error {
 			log.Fatal(err)
 		}
 	}
+
+	application := app.New(&cfg)
+	err := application.Run(context.Background())
 
 	return err
 }

@@ -44,7 +44,7 @@ func WithMaxEntries(maxEntries int) CacheOption {
 
 func NewCache(opts ...CacheOption) *Cache {
 	cache := &Cache{
-		entries:    make(map[string]CacheEntry),
+		entries:    make(map[string]CacheEntry, 2000),
 		mutex:      sync.RWMutex{},
 		maxEntries: 0,
 		testing:    make(map[string]bool),

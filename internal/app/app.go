@@ -34,7 +34,7 @@ func New(cfg *config.Config) *App {
 	}
 
 	log := logger.New(cfg.Verbose, loggerOpts...)
-	cacheInstance := cache.NewCache(cache.WithMaxEntries(99999999999))
+	cacheInstance := cache.NewCache()
 	workerPool := workers.NewWorkerPool(cacheInstance, cfg.Concurrency, cfg.TesterConcurrency, cfg.Timeout, cfg.Rate, log)
 
 	return &App{
@@ -53,9 +53,8 @@ func (a *App) Run(ctx context.Context) error {
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
 
-	// Handle signals for graceful shutdown
 	sigChan := make(chan os.Signal, 1)
-	signal.Notify(sigChan, syscall.SIGINT, syscall.SIGTERM)
+	signal.Notify(sigChan, syscall.SIGINT, syscall.SIGTERM, os.Interrupt)
 
 	// Start worker pool
 	a.logger.Debug("Starting worker pool with %d walkers and %d testers", a.config.Concurrency, a.config.TesterConcurrency)
@@ -91,7 +90,7 @@ func (a *App) Run(ctx context.Context) error {
 }
 
 func (a *App) runNormalMode() error {
-	a.workerPool.Close()
+	a.workerPool.WaitAndClose()
 	a.logger.StartSection("Results")
 	a.cache.PrettyPrint(a.logger)
 
@@ -137,7 +136,7 @@ func (a *App) runWatchMode(ctx context.Context, cancel context.CancelFunc, sigCh
 	cancel()
 
 	// Wait for workers to finish
-	a.workerPool.Wait()
+	a.workerPool.WaitAndClose()
 	a.logger.Success("All workers stopped")
 
 	return nil

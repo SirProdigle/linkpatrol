@@ -9,6 +9,7 @@ import (
 	"os"
 	"path"
 	"strings"
+	"sync/atomic"
 	"time"
 
 	"golang.org/x/time/rate"
@@ -19,26 +20,31 @@ import (
 )
 
 type Tester struct {
-	logger     *logger.Logger
-	cache      *cache.Cache
-	results    <-chan walker.WalkerResult
-	workerPool DomainLimiterProvider
+	logger      *logger.Logger
+	cache       *cache.Cache
+	results     <-chan walker.WalkerResult
+	workerPool  DomainLimiterProvider
+	activeCount *atomic.Int32
 }
 
 type DomainLimiterProvider interface {
 	GetDomainLimiter(domain string) *rate.Limiter
 }
 
-func NewTester(cache *cache.Cache, results <-chan walker.WalkerResult, workerPool DomainLimiterProvider, verbose bool) *Tester {
+func NewTester(cache *cache.Cache, results <-chan walker.WalkerResult, workerPool DomainLimiterProvider, verbose bool, activeCount *atomic.Int32) *Tester {
 	return &Tester{
-		logger:     logger.New(verbose),
-		cache:      cache,
-		results:    results,
-		workerPool: workerPool,
+		logger:      logger.New(verbose),
+		cache:       cache,
+		results:     results,
+		workerPool:  workerPool,
+		activeCount: activeCount,
 	}
 }
 
 func (t *Tester) Test(ctx context.Context, result walker.WalkerResult) {
+	t.activeCount.Add(1)
+	defer t.activeCount.Add(-1)
+
 	// Check if the url is in the cache first
 	if cachedEntry := t.cache.Get(result.Path); cachedEntry != nil {
 		t.logger.Debug("🟡 Cache hit for %s (status: %v)", result.Path, cachedEntry.Status)

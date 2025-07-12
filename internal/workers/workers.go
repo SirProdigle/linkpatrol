@@ -29,12 +29,9 @@ type WorkerPool struct {
 	filesToWalk chan scanner.FileInfo
 	results     chan walker.WalkerResult
 
-	activeWalkers                 *int32
-	activeTesters                 *int32
-	workCompletedSinceLastResults *int32
-
-	wgWalkers sync.WaitGroup
-	wgTesters sync.WaitGroup
+	activeWalkers                 atomic.Int32
+	activeTesters                 atomic.Int32
+	workCompletedSinceLastResults atomic.Int32
 }
 
 type domainLimiter struct {
@@ -44,18 +41,15 @@ type domainLimiter struct {
 
 func NewWorkerPool(cache *cache.Cache, walkerConcurrency, testerConcurrency int, timeout time.Duration, rateLimit int, log *logger.Logger) *WorkerPool {
 	return &WorkerPool{
-		logger:                        log,
-		cache:                         cache,
-		walkerConcurrency:             walkerConcurrency,
-		testerConcurrency:             testerConcurrency,
-		timeout:                       timeout,
-		rateLimitValue:                rateLimit,
-		domainLimiters:                make(map[string]*domainLimiter),
-		filesToWalk:                   make(chan scanner.FileInfo, 500),
-		results:                       make(chan walker.WalkerResult, 500),
-		activeWalkers:                 new(int32),
-		activeTesters:                 new(int32),
-		workCompletedSinceLastResults: new(int32),
+		logger:            log,
+		cache:             cache,
+		walkerConcurrency: walkerConcurrency,
+		testerConcurrency: testerConcurrency,
+		timeout:           timeout,
+		rateLimitValue:    rateLimit,
+		domainLimiters:    make(map[string]*domainLimiter),
+		filesToWalk:       make(chan scanner.FileInfo, 500),
+		results:           make(chan walker.WalkerResult, 500),
 	}
 }
 
@@ -72,9 +66,7 @@ func (wp *WorkerPool) startWalkers(ctx context.Context) {
 	sendResults := (chan<- walker.WalkerResult)(wp.results)
 
 	for i := 0; i < wp.walkerConcurrency; i++ {
-		wp.wgWalkers.Add(1)
 		go func() {
-			defer wp.wgWalkers.Done()
 			for {
 				select {
 				case <-ctx.Done():
@@ -83,19 +75,17 @@ func (wp *WorkerPool) startWalkers(ctx context.Context) {
 					if !ok {
 						return
 					}
-					atomic.AddInt32(wp.activeWalkers, 1)
 					switch file.FileType {
 					case scanner.FileTypeMarkdown:
 						wp.logger.Debug("Walking markdown file: %s", file.FilePath)
-						walker := walker.NewMarkdownWalker(wp.cache, sendResults)
+						walker := walker.NewMarkdownWalker(wp.cache, sendResults, &wp.activeWalkers)
 						walker.Walk(ctx, file.FilePath)
 					case scanner.FileTypeHTML:
 						wp.logger.Debug("Walking HTML file: %s", file.FilePath)
-						walker := walker.NewHtmlWalker(wp.cache, wp.timeout, sendResults)
+						walker := walker.NewHtmlWalker(wp.cache, wp.timeout, sendResults, &wp.activeWalkers)
 						walker.Walk(ctx, file.FilePath)
 					}
-					atomic.AddInt32(wp.activeWalkers, -1)
-					atomic.AddInt32(wp.workCompletedSinceLastResults, 1)
+					wp.workCompletedSinceLastResults.Add(1)
 				}
 			}
 		}()
@@ -106,9 +96,7 @@ func (wp *WorkerPool) startTesters(ctx context.Context) {
 	receiveResults := (<-chan walker.WalkerResult)(wp.results)
 
 	for i := 0; i < wp.testerConcurrency; i++ {
-		wp.wgTesters.Add(1)
 		go func() {
-			defer wp.wgTesters.Done()
 			for {
 				select {
 				case <-ctx.Done():
@@ -117,12 +105,10 @@ func (wp *WorkerPool) startTesters(ctx context.Context) {
 					if !ok {
 						return
 					}
-					atomic.AddInt32(wp.activeTesters, 1)
 					wp.logger.Trace("Testing result: %+v", result)
-					tester := tester.NewTester(wp.cache, receiveResults, wp, wp.logger.IsVerbose())
+					tester := tester.NewTester(wp.cache, receiveResults, wp, wp.logger.IsVerbose(), &wp.activeTesters)
 					tester.Test(ctx, result)
 					wp.logger.Trace("Finished testing result: %+v", result)
-					atomic.AddInt32(wp.activeTesters, -1)
 				}
 			}
 		}()
@@ -147,26 +133,30 @@ func (wp *WorkerPool) SendFiles(ctx context.Context, markdownFiles, htmlFiles []
 }
 
 func (wp *WorkerPool) IsIdle() bool {
-	walkers := atomic.LoadInt32(wp.activeWalkers)
-	testers := atomic.LoadInt32(wp.activeTesters)
+	walkers := wp.activeWalkers.Load()
+	testers := wp.activeTesters.Load()
 	queueEmpty := len(wp.filesToWalk) == 0 && len(wp.results) == 0
 	return walkers == 0 && testers == 0 && queueEmpty
 }
 
 func (wp *WorkerPool) GetWorkCompleted() int32 {
-	return atomic.LoadInt32(wp.workCompletedSinceLastResults)
+	return wp.workCompletedSinceLastResults.Load()
 }
 
-func (wp *WorkerPool) Close() {
+func (wp *WorkerPool) WaitAndClose() {
+	for {
+		if wp.IsIdle() {
+			// Require 2 consecutive idle checks to close
+			time.Sleep(100 * time.Millisecond)
+			if wp.IsIdle() {
+				break
+			}
+		}
+		time.Sleep(100 * time.Millisecond)
+	}
+
 	close(wp.filesToWalk)
-	wp.wgWalkers.Wait()
 	close(wp.results)
-	wp.wgTesters.Wait()
-}
-
-func (wp *WorkerPool) Wait() {
-	wp.wgWalkers.Wait()
-	wp.wgTesters.Wait()
 }
 
 func (wp *WorkerPool) GetDomainLimiter(domain string) *rate.Limiter {
@@ -225,8 +215,8 @@ func (wp *WorkerPool) GetDomainCount() int {
 
 func (wp *WorkerPool) GetStats() WorkerPoolStats {
 	return WorkerPoolStats{
-		ActiveWalkers:   atomic.LoadInt32(wp.activeWalkers),
-		ActiveTesters:   atomic.LoadInt32(wp.activeTesters),
+		ActiveWalkers:   wp.activeWalkers.Load(),
+		ActiveTesters:   wp.activeTesters.Load(),
 		DomainCount:     int32(wp.GetDomainCount()),
 		TotalGoroutines: int32(runtime.NumGoroutine()),
 		FilesQueued:     int32(len(wp.filesToWalk)),

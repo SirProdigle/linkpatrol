@@ -7,28 +7,34 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync/atomic"
 	"time"
 
 	"github.com/sirprodigle/linkpatrol/internal/cache"
 )
 
 type HtmlWalker struct {
-	cache   *cache.Cache
-	client  *http.Client
-	results chan<- WalkerResult
+	cache       *cache.Cache
+	client      *http.Client
+	results     chan<- WalkerResult
+	activeCount *atomic.Int32
 }
 
-func NewHtmlWalker(cache *cache.Cache, timeout time.Duration, results chan<- WalkerResult) *HtmlWalker {
+func NewHtmlWalker(cache *cache.Cache, timeout time.Duration, results chan<- WalkerResult, activeCount *atomic.Int32) *HtmlWalker {
 	return &HtmlWalker{
 		cache: cache,
 		client: &http.Client{
 			Timeout: timeout,
 		},
-		results: results,
+		results:     results,
+		activeCount: activeCount,
 	}
 }
 
 func (w *HtmlWalker) Walk(ctx context.Context, uri string) error {
+	w.activeCount.Add(1)
+	defer w.activeCount.Add(-1)
+
 	f, err := os.Open(uri)
 	if err != nil {
 		return err
