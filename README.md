@@ -149,7 +149,7 @@ LinkPatrol uses a multi-layered architecture for optimal performance:
 
 ```
 ┌─────────────────┐    ┌─────────────────┐    ┌─────────────────┐
-│   File Scanner  │───▶│  Worker Pool    │───▶│  Link Testers   │
+│   File Scanner  │────│  Worker Pool    │────│  Link Testers   │
 │                 │    │                 │    │                 │
 │ • Markdown      │    │ • File Readers  │    │ • HTTP Clients  │
 │ • HTML          │    │ • Concurrency   │    │ • Rate Limiting │
@@ -177,22 +177,14 @@ LinkPatrol uses a multi-layered architecture for optimal performance:
 # Clone the repository
 git clone https://github.com/sirprodigle/linkpatrol.git
 cd linkpatrol
-
 # Build the binary
 go build -o linkpatrol
-
-# Run tests
-go test ./...
-
-# Run with race detection
-go test -race ./...
 ```
 
 ### Project Structure
 
 ```
 linkpatrol/
-├── cmd/                    # Command-line interface
 ├── internal/              # Internal packages
 │   ├── app/              # Main application logic
 │   ├── cache/            # Link result caching
@@ -203,8 +195,6 @@ linkpatrol/
 │   ├── walker/           # File parsing (Markdown/HTML)
 │   ├── watcher/          # File system watching
 │   └── workers/          # Worker pool management
-├── pkg/                  # Public packages
-├── test_data/           # Test data and examples
 └── main.go              # Application entry point
 ```
 
@@ -245,9 +235,8 @@ LinkPatrol is designed for speed and efficiency:
 ### Benchmarks
 
 On a typical documentation project with 1000+ links:
-- **Single-threaded**: ~5-10 minutes
 - **LinkPatrol**: ~30-60 seconds
-- **Memory usage**: <50MB for most projects
+- **Memory usage**: <10MB for most projects
 
 ## 🐛 Troubleshooting
 
