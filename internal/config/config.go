@@ -11,18 +11,18 @@ import (
 )
 
 type Config struct {
-	Dir                string
-	Watch              bool
-	Concurrency        int
-	TesterConcurrency  int
-	Timeout            time.Duration
-	Rate               int
-	ConfigFile         string
-	Verbose            bool
-	TermWidth          int
-	NoTruncate         bool
-	CPUProfile         string
-	MemProfile         string
+	Dir               string
+	Watch             bool
+	Concurrency       int
+	TesterConcurrency int
+	Timeout           time.Duration
+	Rate              int
+	ConfigFile        string
+	Verbose           bool
+	TermWidth         int
+	NoTruncate        bool
+	CPUProfile        string
+	MemProfile        string
 }
 
 func NewConfig() Config {

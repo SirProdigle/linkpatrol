@@ -17,29 +17,29 @@ import (
 )
 
 type WorkerPool struct {
-	logger           *logger.Logger
-	cache            *cache.Cache
+	logger            *logger.Logger
+	cache             *cache.Cache
 	walkerConcurrency int
 	testerConcurrency int
-	timeout          time.Duration
-	rateLimitValue   int
-	domainLimiters   map[string]*domainLimiter
-	limiterMutex     sync.RWMutex
-	
+	timeout           time.Duration
+	rateLimitValue    int
+	domainLimiters    map[string]*domainLimiter
+	limiterMutex      sync.RWMutex
+
 	filesToWalk chan scanner.FileInfo
 	results     chan walker.WalkerResult
-	
+
 	activeWalkers                 *int32
 	activeTesters                 *int32
 	workCompletedSinceLastResults *int32
-	
+
 	wgWalkers sync.WaitGroup
 	wgTesters sync.WaitGroup
 }
 
 type domainLimiter struct {
-	limiter    *rate.Limiter
-	lastUsed   time.Time
+	limiter  *rate.Limiter
+	lastUsed time.Time
 }
 
 func NewWorkerPool(cache *cache.Cache, walkerConcurrency, testerConcurrency int, timeout time.Duration, rateLimit int, log *logger.Logger) *WorkerPool {
@@ -70,7 +70,7 @@ func (wp *WorkerPool) Start(ctx context.Context) {
 
 func (wp *WorkerPool) startWalkers(ctx context.Context) {
 	sendResults := (chan<- walker.WalkerResult)(wp.results)
-	
+
 	for i := 0; i < wp.walkerConcurrency; i++ {
 		wp.wgWalkers.Add(1)
 		go func() {
@@ -104,7 +104,7 @@ func (wp *WorkerPool) startWalkers(ctx context.Context) {
 
 func (wp *WorkerPool) startTesters(ctx context.Context) {
 	receiveResults := (<-chan walker.WalkerResult)(wp.results)
-	
+
 	for i := 0; i < wp.testerConcurrency; i++ {
 		wp.wgTesters.Add(1)
 		go func() {
@@ -173,7 +173,7 @@ func (wp *WorkerPool) GetDomainLimiter(domain string) *rate.Limiter {
 	wp.limiterMutex.RLock()
 	domainLim, exists := wp.domainLimiters[domain]
 	wp.limiterMutex.RUnlock()
-	
+
 	if !exists {
 		wp.limiterMutex.Lock()
 		// Double-check in case another goroutine created it
@@ -195,19 +195,19 @@ func (wp *WorkerPool) GetDomainLimiter(domain string) *rate.Limiter {
 		}
 		wp.limiterMutex.Unlock()
 	}
-	
+
 	// Update last used time
 	wp.limiterMutex.Lock()
 	domainLim.lastUsed = time.Now()
 	wp.limiterMutex.Unlock()
-	
+
 	return domainLim.limiter
 }
 
 func (wp *WorkerPool) CleanupInactiveLimiters(maxAge time.Duration) {
 	wp.limiterMutex.Lock()
 	defer wp.limiterMutex.Unlock()
-	
+
 	cutoff := time.Now().Add(-maxAge)
 	for domain, limiter := range wp.domainLimiters {
 		if limiter.lastUsed.Before(cutoff) {

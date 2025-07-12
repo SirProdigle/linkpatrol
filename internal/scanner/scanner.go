@@ -21,7 +21,7 @@ type FileInfo struct {
 func ScanDirectory(dir string) ([]string, []string, error) {
 	var markdownFiles []string
 	var htmlFiles []string
-	
+
 	err := filepath.WalkDir(dir, func(path string, d os.DirEntry, err error) error {
 		if err != nil {
 			return err
@@ -30,7 +30,7 @@ func ScanDirectory(dir string) ([]string, []string, error) {
 		if d.IsDir() {
 			return nil
 		}
-		
+
 		if strings.HasSuffix(d.Name(), ".md") || strings.HasSuffix(d.Name(), ".markdown") {
 			markdownFiles = append(markdownFiles, path)
 		} else if strings.HasSuffix(d.Name(), ".html") || strings.HasSuffix(d.Name(), ".htm") {

@@ -44,22 +44,22 @@ func (t *Tester) Test(ctx context.Context, result walker.WalkerResult) {
 		t.logger.Debug("🟡 Cache hit for %s (status: %v)", result.Path, cachedEntry.Status)
 		return
 	}
-	
+
 	// Check if already being tested by another worker
 	if t.cache.IsBeingTested(result.Path) {
 		t.logger.Debug("🟠 Already being tested: %s", result.Path)
 		return
 	}
-	
+
 	// Mark as being tested
 	if !t.cache.StartTesting(result.Path) {
 		t.logger.Debug("🟠 Race condition avoided for: %s", result.Path)
 		return
 	}
-	
+
 	// Ensure we clean up the testing flag
 	defer t.cache.FinishTesting(result.Path)
-	
+
 	t.logger.Debug("🟦 Testing %s", result.Path)
 
 	switch result.Type {
@@ -172,17 +172,17 @@ func (t *Tester) PingUrl(ctx context.Context, path string) error {
 	if err != nil {
 		return err
 	}
-	
+
 	// Get domain-specific rate limiter
 	domainLimiter := t.workerPool.GetDomainLimiter(u.Host)
-	
+
 	// Wait for rate limiter permit
 	t.logger.Progress("Waiting for rate limit permit for domain: %s", u.Host)
 	if err := domainLimiter.Wait(ctx); err != nil {
 		return err
 	}
 	t.logger.Debug("Got rate limit permit for domain: %s", u.Host)
-	
+
 	client := &http.Client{
 		Timeout: 10 * time.Second,
 	}

@@ -32,11 +32,11 @@ func New(cfg *config.Config) *App {
 	if cfg.NoTruncate {
 		loggerOpts = append(loggerOpts, logger.WithNoTruncate(cfg.NoTruncate))
 	}
-	
+
 	log := logger.New(cfg.Verbose, loggerOpts...)
 	cacheInstance := cache.NewCache(cache.WithMaxEntries(99999999999))
 	workerPool := workers.NewWorkerPool(cacheInstance, cfg.Concurrency, cfg.TesterConcurrency, cfg.Timeout, cfg.Rate, log)
-	
+
 	return &App{
 		config:     cfg,
 		cache:      cacheInstance,
@@ -94,20 +94,20 @@ func (a *App) runNormalMode() error {
 	a.workerPool.Close()
 	a.logger.StartSection("Results")
 	a.cache.PrettyPrint(a.logger)
-	
+
 	// Check for failures and exit with appropriate code
 	if a.cache.HasFailures() {
 		deadCount, timeoutCount := a.cache.GetFailureCount()
 		a.logger.TestResults(deadCount, timeoutCount)
 		return fmt.Errorf("link check failed: found %d dead and %d timeout links", deadCount, timeoutCount)
 	}
-	
+
 	a.logger.TestResults(0, 0)
 	return nil
 }
 
 func (a *App) runWatchMode(ctx context.Context, cancel context.CancelFunc, sigChan chan os.Signal) error {
-	// Set up filesystem watcher  
+	// Set up filesystem watcher
 	a.logger.StartSection("Watch Mode")
 	workerFileChannel := a.workerPool.GetFileChannel()
 	var err error

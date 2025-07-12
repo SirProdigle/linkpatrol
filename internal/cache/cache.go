@@ -108,11 +108,11 @@ func (c *Cache) IsBeingTested(url string) bool {
 func (c *Cache) StartTesting(url string) bool {
 	c.testMutex.Lock()
 	defer c.testMutex.Unlock()
-	
+
 	if c.testing[url] {
 		return false // Already being tested
 	}
-	
+
 	c.testing[url] = true
 	return true
 }
