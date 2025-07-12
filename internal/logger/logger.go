@@ -241,9 +241,9 @@ func (l *Logger) WatchError(err error) {
 	l.log(l.errOut, "❌", colorRed, "Watcher error: %v", err)
 }
 
-// FilesFound logs the discovery of markdown and HTML files
+// FilesFound logs the discovery of markdown files
 func (l *Logger) FilesFound(mdFiles, htmlFiles int) {
-	l.log(l.out, "📊", colorBlue, "Found %d markdown and %d HTML files", mdFiles, htmlFiles)
+	l.log(l.out, "📊", colorBlue, "Found %d markdown files", mdFiles)
 }
 
 // TestResults logs the final link testing results

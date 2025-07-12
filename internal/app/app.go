@@ -62,25 +62,22 @@ func (a *App) Run(ctx context.Context) error {
 
 	// Scan directory for initial files
 	a.logger.StartSection("Scanning Files")
-	markdownFiles, htmlFiles, err := scanner.ScanDirectory(a.config.Dir)
+	markdownFiles, err := scanner.ScanDirectory(a.config.Dir)
 	if err != nil {
 		a.logger.Error("Failed to scan directory: %v", err)
 		return err
 	}
 
-	a.logger.FilesFound(len(markdownFiles), len(htmlFiles))
+	a.logger.FilesFound(len(markdownFiles), 0)
 
 	// Log individual files in verbose mode
 	for _, file := range markdownFiles {
 		a.logger.FileWalk("markdown file", file)
 	}
-	for _, file := range htmlFiles {
-		a.logger.FileWalk("HTML file", file)
-	}
 
 	// Send initial files to workers
 	a.logger.StartSection("Testing Links")
-	a.workerPool.SendFiles(ctx, markdownFiles, htmlFiles)
+	a.workerPool.SendFiles(ctx, markdownFiles)
 
 	if a.config.Watch {
 		return a.runWatchMode(ctx, cancel, sigChan)

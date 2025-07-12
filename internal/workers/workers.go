@@ -80,10 +80,8 @@ func (wp *WorkerPool) startWalkers(ctx context.Context) {
 						wp.logger.Debug("Walking markdown file: %s", file.FilePath)
 						walker := walker.NewMarkdownWalker(wp.cache, sendResults, &wp.activeWalkers)
 						walker.Walk(ctx, file.FilePath)
-					case scanner.FileTypeHTML:
-						wp.logger.Debug("Walking HTML file: %s", file.FilePath)
-						walker := walker.NewHtmlWalker(wp.cache, wp.timeout, sendResults, &wp.activeWalkers)
-						walker.Walk(ctx, file.FilePath)
+					default:
+						wp.logger.Debug("Unsupported file type for file: %s", file.FilePath)
 					}
 					wp.workCompletedSinceLastResults.Add(1)
 				}
@@ -115,19 +113,12 @@ func (wp *WorkerPool) startTesters(ctx context.Context) {
 	}
 }
 
-func (wp *WorkerPool) SendFiles(ctx context.Context, markdownFiles, htmlFiles []string) {
+func (wp *WorkerPool) SendFiles(ctx context.Context, markdownFiles []string) {
 	for _, filePath := range markdownFiles {
 		select {
 		case <-ctx.Done():
 			return
 		case wp.filesToWalk <- scanner.FileInfo{FilePath: filePath, FileType: scanner.FileTypeMarkdown}:
-		}
-	}
-	for _, filePath := range htmlFiles {
-		select {
-		case <-ctx.Done():
-			return
-		case wp.filesToWalk <- scanner.FileInfo{FilePath: filePath, FileType: scanner.FileTypeHTML}:
 		}
 	}
 }
@@ -171,10 +162,10 @@ func (wp *WorkerPool) GetDomainLimiter(domain string) *rate.Limiter {
 			var limiter *rate.Limiter
 			if wp.rateLimitValue <= 0 {
 				// No rate limiting - use unlimited limiter
-				limiter = rate.NewLimiter(rate.Inf, 1)
+				limiter = rate.NewLimiter(rate.Inf, 5)
 			} else {
 				// Create rate limiter with specified requests per second
-				limiter = rate.NewLimiter(rate.Limit(wp.rateLimitValue), 1)
+				limiter = rate.NewLimiter(rate.Limit(wp.rateLimitValue), 5)
 			}
 			domainLim = &domainLimiter{
 				limiter:  limiter,
@@ -192,19 +183,6 @@ func (wp *WorkerPool) GetDomainLimiter(domain string) *rate.Limiter {
 	wp.limiterMutex.Unlock()
 
 	return domainLim.limiter
-}
-
-func (wp *WorkerPool) CleanupInactiveLimiters(maxAge time.Duration) {
-	wp.limiterMutex.Lock()
-	defer wp.limiterMutex.Unlock()
-
-	cutoff := time.Now().Add(-maxAge)
-	for domain, limiter := range wp.domainLimiters {
-		if limiter.lastUsed.Before(cutoff) {
-			delete(wp.domainLimiters, domain)
-			wp.logger.Debug("Cleaned up inactive rate limiter for domain: %s", domain)
-		}
-	}
 }
 
 func (wp *WorkerPool) GetDomainCount() int {

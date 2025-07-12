@@ -15,8 +15,8 @@ var cfg config.Config
 
 var rootCmd = &cobra.Command{
 	Use:           "linkpatrol",
-	Short:         "Markdown/HTML link checker",
-	Long:          `LinkPatrol is a tool for checking that links in markdown/html files are accessible and valid`,
+	Short:         "Markdown link checker",
+	Long:          `LinkPatrol is a tool for checking that links in markdown files are accessible and valid`,
 	RunE:          run,
 	SilenceUsage:  true,
 	SilenceErrors: true,

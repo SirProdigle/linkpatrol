@@ -10,7 +10,7 @@ type FileType int
 
 const (
 	FileTypeMarkdown FileType = iota
-	FileTypeHTML
+	// Future file types can be added here
 )
 
 type FileInfo struct {
@@ -18,9 +18,8 @@ type FileInfo struct {
 	FileType FileType
 }
 
-func ScanDirectory(dir string) ([]string, []string, error) {
+func ScanDirectory(dir string) ([]string, error) {
 	var markdownFiles []string
-	var htmlFiles []string
 
 	err := filepath.WalkDir(dir, func(path string, d os.DirEntry, err error) error {
 		if err != nil {
@@ -33,30 +32,27 @@ func ScanDirectory(dir string) ([]string, []string, error) {
 
 		if strings.HasSuffix(d.Name(), ".md") || strings.HasSuffix(d.Name(), ".markdown") {
 			markdownFiles = append(markdownFiles, path)
-		} else if strings.HasSuffix(d.Name(), ".html") || strings.HasSuffix(d.Name(), ".htm") {
-			htmlFiles = append(htmlFiles, path)
 		}
 
 		return nil
 	})
 
 	if err != nil {
-		return nil, nil, err
+		return nil, err
 	}
 
-	return markdownFiles, htmlFiles, nil
+	return markdownFiles, nil
 }
 
 func IsRelevantFile(filename string) bool {
 	return strings.HasSuffix(filename, ".md") ||
-		strings.HasSuffix(filename, ".markdown") ||
-		strings.HasSuffix(filename, ".html") ||
-		strings.HasSuffix(filename, ".htm")
+		strings.HasSuffix(filename, ".markdown")
 }
 
 func GetFileType(filename string) FileType {
 	if strings.HasSuffix(filename, ".md") || strings.HasSuffix(filename, ".markdown") {
 		return FileTypeMarkdown
 	}
-	return FileTypeHTML
+	// Default to markdown for unknown file types (shouldn't happen with IsRelevantFile check)
+	return FileTypeMarkdown
 }

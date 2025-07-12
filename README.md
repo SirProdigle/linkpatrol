@@ -6,13 +6,13 @@
 [![GoDoc](https://godoc.org/github.com/sirprodigle/linkpatrol?status.svg)](https://godoc.org/github.com/sirprodigle/linkpatrol)
 [![Build Status](https://img.shields.io/badge/build-passing-brightgreen.svg)](https://github.com/sirprodigle/linkpatrol)
 
-> **A lightning-fast, concurrent link checker for Markdown and HTML files** 🚀
+> **A lightning-fast, concurrent link checker for Markdown files** 🚀
 
-LinkPatrol is a high-performance tool designed to validate links in Markdown and HTML files. It uses concurrent processing to check thousands of links efficiently, making it perfect for documentation projects, static sites, and any content that needs link validation.
+LinkPatrol is a high-performance tool designed to validate links in Markdown files. It uses concurrent processing to check thousands of links efficiently, making it perfect for documentation projects, static sites, and any content that needs link validation.
 
 ## ✨ Features
 
-- 🔍 **Multi-format Support**: Checks links in both Markdown and HTML files
+- 🔍 **Markdown Support**: Checks links in Markdown files
 - ⚡ **High Performance**: Concurrent processing with configurable worker pools
 - 👀 **Watch Mode**: Real-time monitoring of file changes
 - 🎯 **Smart Caching**: Avoids re-checking previously validated links
@@ -57,7 +57,7 @@ go install github.com/sirprodigle/linkpatrol@latest
 
 ### Simple Link Check
 ```bash
-# Check all Markdown and HTML files in current directory
+# Check all Markdown files in current directory
 ./linkpatrol
 ```
 
@@ -126,7 +126,7 @@ LinkPatrol provides clear, color-coded output:
 ```
 🔗 LinkPatrol Starting
 📁 Scanning Files
-   Found 5 markdown files and 3 HTML files
+   Found 5 markdown files
 🧪 Testing Links
    https://example.com                    LIVE     ✅      -
    https://broken-link.com               DEAD     ❌      404 Not Found
@@ -152,7 +152,7 @@ LinkPatrol uses a multi-layered architecture for optimal performance:
 │   File Scanner  │────│  Worker Pool    │────│  Link Testers   │
 │                 │    │                 │    │                 │
 │ • Markdown      │    │ • File Readers  │    │ • HTTP Clients  │
-│ • HTML          │    │ • Concurrency   │    │ • Rate Limiting │
+│                 │    │ • Concurrency   │    │ • Rate Limiting │
 └─────────────────┘    └─────────────────┘    └─────────────────┘
                                 │
                                 ▼
@@ -192,7 +192,7 @@ linkpatrol/
 │   ├── logger/           # Logging utilities
 │   ├── scanner/          # File scanning logic
 │   ├── tester/           # Link testing logic
-│   ├── walker/           # File parsing (Markdown/HTML)
+│   ├── walker/           # File parsing (Markdown)
 │   ├── watcher/          # File system watching
 │   └── workers/          # Worker pool management
 └── main.go              # Application entry point

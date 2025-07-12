@@ -183,11 +183,12 @@ func (t *Tester) PingUrl(ctx context.Context, path string) error {
 	domainLimiter := t.workerPool.GetDomainLimiter(u.Host)
 
 	// Wait for rate limiter permit
-	t.logger.Progress("Waiting for rate limit permit for domain: %s", u.Host)
-	if err := domainLimiter.Wait(ctx); err != nil {
-		return err
+	if !domainLimiter.Allow() {
+		t.logger.Progress("Waiting for rate limit permit for domain: %s", u.Host)
+		if err := domainLimiter.Wait(ctx); err != nil {
+			return err
+		}
 	}
-	t.logger.Debug("Got rate limit permit for domain: %s", u.Host)
 
 	client := &http.Client{
 		Timeout: 10 * time.Second,
