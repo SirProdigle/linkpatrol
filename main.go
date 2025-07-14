@@ -14,9 +14,10 @@ import (
 var cfg config.Config
 
 var rootCmd = &cobra.Command{
-	Use:           "linkpatrol",
-	Short:         "Markdown link checker",
-	Long:          `LinkPatrol is a tool for checking that links in markdown files are accessible and valid`,
+	Use:           "linkpatrol [target-url]",
+	Short:         "Web link checker",
+	Long:          `LinkPatrol is a tool for checking that links on web pages are accessible and valid`,
+	Args:          cobra.MaximumNArgs(1),
 	RunE:          run,
 	SilenceUsage:  true,
 	SilenceErrors: true,
@@ -29,6 +30,11 @@ func init() {
 
 func run(cmd *cobra.Command, args []string) error {
 	cfg.LoadFromViper()
+	
+	// If target URL is provided as positional argument, use it
+	if len(args) > 0 {
+		cfg.Target = args[0]
+	}
 
 	if cfg.CPUProfile != "" {
 		f, err := os.Create(cfg.CPUProfile)
