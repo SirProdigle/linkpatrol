@@ -6,15 +6,14 @@
 [![GoDoc](https://godoc.org/github.com/sirprodigle/linkpatrol?status.svg)](https://godoc.org/github.com/sirprodigle/linkpatrol)
 [![Build Status](https://img.shields.io/badge/build-passing-brightgreen.svg)](https://github.com/sirprodigle/linkpatrol)
 
-> **A lightning-fast, concurrent link checker for Markdown files** 🚀
+> **A lightning-fast, concurrent web crawler and link checker** 🚀
 
-LinkPatrol is a high-performance tool designed to validate links in Markdown files. It uses concurrent processing to check thousands of links efficiently, making it perfect for documentation projects, static sites, and any content that needs link validation.
+LinkPatrol is a high-performance tool designed to crawl websites and validate links. It uses concurrent processing to check thousands of links efficiently, making it perfect for website health monitoring, SEO analysis, and broken link detection.
 
 ## ✨ Features
 
-- 🔍 **Markdown Support**: Checks links in Markdown files
+- 🔍 **Web Crawling**: Crawls websites and extracts links from HTML pages
 - ⚡ **High Performance**: Concurrent processing with configurable worker pools
-- 👀 **Watch Mode**: Real-time monitoring of file changes
 - 🎯 **Smart Caching**: Avoids re-checking previously validated links
 - 🛡️ **Rate Limiting**: Respectful to servers with configurable request rates
 - 📊 **Detailed Reporting**: Clear status indicators and error messages
@@ -40,43 +39,40 @@ go install github.com/sirprodigle/linkpatrol@latest
 ### Basic Usage
 
 ```bash
-# Check links in current directory
-./linkpatrol
-
-# Check links in a specific directory
-./linkpatrol -d /path/to/your/docs
+# Check links on a website
+./linkpatrol -t https://example.com
 
 # Enable verbose output
-./linkpatrol -v
+./linkpatrol -t https://example.com -v
 
-# Watch mode for real-time monitoring
-./linkpatrol -w
+# Customize concurrency and rate limiting
+./linkpatrol -t https://example.com -n 16 --tester-concurrency 200 -r 20
 ```
 
 ## 📖 Usage Examples
 
 ### Simple Link Check
 ```bash
-# Check all Markdown files in current directory
-./linkpatrol
+# Check all links on a website
+./linkpatrol -t https://example.com
 ```
 
 ### Verbose Output
 ```bash
 # Get detailed information about each link
-./linkpatrol -v -d ./docs
+./linkpatrol -t https://example.com -v
 ```
 
-### Watch Mode
+### High Performance Mode
 ```bash
-# Monitor files for changes and re-check links automatically
-./linkpatrol -w -d ./website
+# Use high concurrency for faster crawling
+./linkpatrol -t https://example.com -n 32 --tester-concurrency 500 -r 50
 ```
 
 ### Custom Configuration
 ```bash
-# Use custom timeout and concurrency settings
-./linkpatrol -t 10s -n 8 --tester-concurrency 50 -r 5
+# Use custom timeout and rate limiting
+./linkpatrol -t https://example.com --timeout 10s -r 5
 ```
 
 ## ⚙️ Configuration
@@ -85,12 +81,11 @@ go install github.com/sirprodigle/linkpatrol@latest
 
 | Flag | Description | Default |
 |------|-------------|---------|
-| `-d, --dir` | Root directory to scan | `.` |
-| `-w, --watch` | Enable live watch mode | `false` |
+| `-t, --target` | Target URL to scan (required) | `` |
 | `-v, --verbose` | Enable verbose logging | `false` |
-| `-n, --concurrency` | Max concurrent file readers | `CPU cores × 2` |
+| `-n, --concurrency` | Max concurrent web crawlers | `CPU cores × 2` |
 | `--tester-concurrency` | Max concurrent link testers | `100` |
-| `-t, --timeout` | Per-request timeout | `5s` |
+| `--timeout` | Per-request timeout | `5s` |
 | `-r, --rate` | Max requests per second per domain | `10` |
 | `--width` | Terminal width override | `auto-detect` |
 | `--no-truncate` | Don't truncate URLs or error messages | `false` |
@@ -100,7 +95,7 @@ go install github.com/sirprodigle/linkpatrol@latest
 All flags can be set via environment variables with the `LINKPATROL_` prefix:
 
 ```bash
-export LINKPATROL_DIR="./docs"
+export LINKPATROL_TARGET="https://example.com"
 export LINKPATROL_VERBOSE="true"
 export LINKPATROL_TIMEOUT="10s"
 ```
@@ -110,8 +105,7 @@ export LINKPATROL_TIMEOUT="10s"
 Create a `linkpatrol.yaml` file in your project root:
 
 ```yaml
-dir: "./docs"
-watch: false
+target: "https://example.com"
 verbose: true
 concurrency: 8
 tester-concurrency: 100
@@ -125,8 +119,8 @@ LinkPatrol provides clear, color-coded output:
 
 ```
 🔗 LinkPatrol Starting
-📁 Scanning Files
-   Found 5 markdown files
+📁 Scanning URL
+   Found 1 target URL
 🧪 Testing Links
    https://example.com                    LIVE     ✅      -
    https://broken-link.com               DEAD     ❌      404 Not Found
@@ -149,9 +143,9 @@ LinkPatrol uses a multi-layered architecture for optimal performance:
 
 ```
 ┌─────────────────┐    ┌─────────────────┐    ┌─────────────────┐
-│   File Scanner  │────│  Worker Pool    │────│  Link Testers   │
+│   Web Crawler   │────│  Worker Pool    │────│  Link Testers   │
 │                 │    │                 │    │                 │
-│ • Markdown      │    │ • File Readers  │    │ • HTTP Clients  │
+│ • HTML Parser   │    │ • Web Crawlers  │    │ • HTTP Clients  │
 │                 │    │ • Concurrency   │    │ • Rate Limiting │
 └─────────────────┘    └─────────────────┘    └─────────────────┘
                                 │
@@ -190,10 +184,9 @@ linkpatrol/
 │   ├── cache/            # Link result caching
 │   ├── config/           # Configuration management
 │   ├── logger/           # Logging utilities
-│   ├── scanner/          # File scanning logic
+│   ├── scanner/          # URL validation logic
 │   ├── tester/           # Link testing logic
-│   ├── walker/           # File parsing (Markdown)
-│   ├── watcher/          # File system watching
+│   ├── walker/           # Web crawling (HTML parsing)
 │   └── workers/          # Worker pool management
 └── main.go              # Application entry point
 ```

@@ -210,7 +210,7 @@ func (l *Logger) RateLimit(domain string, rate int, action string) {
 }
 
 // Config logs configuration information
-func (l *Logger) Config(dir string, watch bool, walkerConcurrency, testerConcurrency int, timeout, rateLimit any) {
+func (l *Logger) Config(dir string, watch bool, concurrency int, timeout, rateLimit any) {
 	if !l.verbose {
 		return
 	}
@@ -218,8 +218,8 @@ func (l *Logger) Config(dir string, watch bool, walkerConcurrency, testerConcurr
 	l.log(l.out, "🔧", colorBlue, "Configuration")
 	fmt.Fprintf(l.out, "  %sDirectory:%s %s\n", colorCyan, colorReset, dir)
 	fmt.Fprintf(l.out, "  %sWatch:%s %t\n", colorCyan, colorReset, watch)
-	fmt.Fprintf(l.out, "  %sWalker concurrency:%s %d\n", colorCyan, colorReset, walkerConcurrency)
-	fmt.Fprintf(l.out, "  %sTester concurrency:%s %d\n", colorCyan, colorReset, testerConcurrency)
+	fmt.Fprintf(l.out, "  %sWalker concurrency:%s %d\n", colorCyan, colorReset, concurrency)
+	fmt.Fprintf(l.out, "  %sTester concurrency:%s %d\n", colorCyan, colorReset, concurrency)
 	fmt.Fprintf(l.out, "  %sTimeout:%s %v\n", colorCyan, colorReset, timeout)
 	fmt.Fprintf(l.out, "  %sRate limit:%s %v req/s\n", colorCyan, colorReset, rateLimit)
 }
