@@ -2,7 +2,8 @@ package workers
 
 import (
 	"context"
-	"runtime"
+	"net"
+	"net/http"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -10,28 +11,29 @@ import (
 	"golang.org/x/time/rate"
 
 	"github.com/sirprodigle/linkpatrol/internal/cache"
-	"github.com/sirprodigle/linkpatrol/internal/logger"
-	"github.com/sirprodigle/linkpatrol/internal/scanner"
-	"github.com/sirprodigle/linkpatrol/internal/tester"
+	. "github.com/sirprodigle/linkpatrol/internal/logger"
+	. "github.com/sirprodigle/linkpatrol/internal/tester"
 	"github.com/sirprodigle/linkpatrol/internal/walker"
 )
 
 type WorkerPool struct {
-	logger            *logger.Logger
-	cache             *cache.Cache
-	walkerConcurrency int
-	testerConcurrency int
-	timeout           time.Duration
-	rateLimitValue    int
-	domainLimiters    map[string]*domainLimiter
-	limiterMutex      sync.RWMutex
+	logger         *Logger
+	resultsCache   *cache.ResultsCache
+	concurrency    int
+	rateLimitValue int
+	domainLimiters map[string]*domainLimiter
+	limiterMutex   sync.RWMutex
+	resultsChan    chan<- cache.CacheEntry
+	toTestChan     chan walker.WalkerRequest
+	toWalkChan     chan walker.WalkerRequest
+	timeout        time.Duration
+	client         *http.Client
+	baseUrl        string
 
-	filesToWalk chan scanner.FileInfo
-	results     chan walker.WalkerResult
+	activeWalkers atomic.Int32
+	activeTesters atomic.Int32
 
-	activeWalkers                 atomic.Int32
-	activeTesters                 atomic.Int32
-	workCompletedSinceLastResults atomic.Int32
+	defaultRateLimiter *rate.Limiter
 }
 
 type domainLimiter struct {
@@ -39,22 +41,40 @@ type domainLimiter struct {
 	lastUsed time.Time
 }
 
-func NewWorkerPool(cache *cache.Cache, walkerConcurrency, testerConcurrency int, timeout time.Duration, rateLimit int, log *logger.Logger) *WorkerPool {
-	return &WorkerPool{
-		logger:            log,
-		cache:             cache,
-		walkerConcurrency: walkerConcurrency,
-		testerConcurrency: testerConcurrency,
-		timeout:           timeout,
-		rateLimitValue:    rateLimit,
-		domainLimiters:    make(map[string]*domainLimiter),
-		filesToWalk:       make(chan scanner.FileInfo, 500),
-		results:           make(chan walker.WalkerResult, 500),
-	}
-}
+func NewWorkerPool(cache *cache.ResultsCache, concurrency int, timeout time.Duration, rateLimit int, resultsChan chan<- cache.CacheEntry, toWalkChan chan walker.WalkerRequest, toTestChan chan walker.WalkerRequest, log *Logger, baseUrl string) *WorkerPool {
+	client := &http.Client{
+		Timeout: timeout,
+		Transport: &http.Transport{
+			MaxIdleConns:        1000,
+			MaxIdleConnsPerHost: 500,
+			MaxConnsPerHost:     500,
+			IdleConnTimeout:     90 * time.Second,
 
-func (wp *WorkerPool) GetFileChannel() chan<- scanner.FileInfo {
-	return wp.filesToWalk
+			TLSHandshakeTimeout:   10 * time.Second,
+			ResponseHeaderTimeout: 5 * time.Second,
+			ExpectContinueTimeout: 1 * time.Second,
+
+			DisableCompression: true,
+			DialContext: (&net.Dialer{
+				Timeout:   5 * time.Second,
+				KeepAlive: 30 * time.Second,
+			}).DialContext,
+		},
+	}
+	return &WorkerPool{
+		logger:             log,
+		resultsCache:       cache,
+		concurrency:        concurrency,
+		timeout:            timeout,
+		rateLimitValue:     rateLimit,
+		domainLimiters:     make(map[string]*domainLimiter, 100),
+		resultsChan:        resultsChan,
+		client:             client,
+		baseUrl:            baseUrl,
+		defaultRateLimiter: rate.NewLimiter(rate.Inf, 0),
+		toWalkChan:         toWalkChan,
+		toTestChan:         toTestChan,
+	}
 }
 
 func (wp *WorkerPool) Start(ctx context.Context) {
@@ -63,27 +83,19 @@ func (wp *WorkerPool) Start(ctx context.Context) {
 }
 
 func (wp *WorkerPool) startWalkers(ctx context.Context) {
-	sendResults := (chan<- walker.WalkerResult)(wp.results)
 
-	for i := 0; i < wp.walkerConcurrency; i++ {
+	for i := 0; i < wp.concurrency; i++ {
+		walker := walker.NewWalker(wp.client, wp.resultsCache, wp.toWalkChan, wp.toTestChan, &wp.activeWalkers, wp.logger, wp.baseUrl, wp, wp.resultsChan)
 		go func() {
 			for {
 				select {
 				case <-ctx.Done():
 					return
-				case file, ok := <-wp.filesToWalk:
+				case toTest, ok := <-wp.toWalkChan:
 					if !ok {
 						return
 					}
-					switch file.FileType {
-					case scanner.FileTypeMarkdown:
-						wp.logger.Debug("Walking markdown file: %s", file.FilePath)
-						walker := walker.NewMarkdownWalker(wp.cache, sendResults, &wp.activeWalkers)
-						walker.Walk(ctx, file.FilePath)
-					default:
-						wp.logger.Debug("Unsupported file type for file: %s", file.FilePath)
-					}
-					wp.workCompletedSinceLastResults.Add(1)
+					walker.Walk(ctx, toTest)
 				}
 			}
 		}()
@@ -91,47 +103,30 @@ func (wp *WorkerPool) startWalkers(ctx context.Context) {
 }
 
 func (wp *WorkerPool) startTesters(ctx context.Context) {
-	receiveResults := (<-chan walker.WalkerResult)(wp.results)
 
-	for i := 0; i < wp.testerConcurrency; i++ {
-		go func() {
+	for i := 0; i < wp.concurrency; i++ {
+		go func(workerID int) {
+			tester := NewTester(wp.resultsCache, wp.toTestChan, wp, wp.logger.IsVerbose(), &wp.activeTesters, wp.client, wp.resultsChan)
 			for {
 				select {
 				case <-ctx.Done():
 					return
-				case result, ok := <-wp.results:
+				case toTest, ok := <-wp.toTestChan:
 					if !ok {
 						return
 					}
-					wp.logger.Trace("Testing result: %+v", result)
-					tester := tester.NewTester(wp.cache, receiveResults, wp, wp.logger.IsVerbose(), &wp.activeTesters)
-					tester.Test(ctx, result)
-					wp.logger.Trace("Finished testing result: %+v", result)
+					tester.Test(ctx, toTest)
 				}
 			}
-		}()
-	}
-}
-
-func (wp *WorkerPool) SendFiles(ctx context.Context, markdownFiles []string) {
-	for _, filePath := range markdownFiles {
-		select {
-		case <-ctx.Done():
-			return
-		case wp.filesToWalk <- scanner.FileInfo{FilePath: filePath, FileType: scanner.FileTypeMarkdown}:
-		}
+		}(i)
 	}
 }
 
 func (wp *WorkerPool) IsIdle() bool {
 	walkers := wp.activeWalkers.Load()
 	testers := wp.activeTesters.Load()
-	queueEmpty := len(wp.filesToWalk) == 0 && len(wp.results) == 0
+	queueEmpty := len(wp.toTestChan) == 0 && len(wp.toWalkChan) == 0 && len(wp.resultsChan) == 0
 	return walkers == 0 && testers == 0 && queueEmpty
-}
-
-func (wp *WorkerPool) GetWorkCompleted() int32 {
-	return wp.workCompletedSinceLastResults.Load()
 }
 
 func (wp *WorkerPool) WaitAndClose() {
@@ -143,38 +138,42 @@ func (wp *WorkerPool) WaitAndClose() {
 				break
 			}
 		}
-		time.Sleep(100 * time.Millisecond)
+		time.Sleep(1000 * time.Millisecond)
 	}
 
-	close(wp.filesToWalk)
-	close(wp.results)
+	close(wp.toTestChan)
+	close(wp.toWalkChan)
+	close(wp.resultsChan)
+}
+
+func (wp *WorkerPool) SendURLs(ctx context.Context, urls ...string) {
+	for _, url := range urls {
+		wp.logger.Debug("Sending url to walker: %s", url)
+		wp.toWalkChan <- walker.WalkerRequest{
+			Path:     url,
+			BasePath: wp.baseUrl,
+		}
+	}
 }
 
 func (wp *WorkerPool) GetDomainLimiter(domain string) *rate.Limiter {
+	if wp.rateLimitValue == 0 {
+		return wp.defaultRateLimiter
+	}
 	wp.limiterMutex.RLock()
 	domainLim, exists := wp.domainLimiters[domain]
 	wp.limiterMutex.RUnlock()
 
 	if !exists {
 		wp.limiterMutex.Lock()
-		// Double-check in case another goroutine created it
-		if domainLim, exists = wp.domainLimiters[domain]; !exists {
-			var limiter *rate.Limiter
-			if wp.rateLimitValue <= 0 {
-				// No rate limiting - use unlimited limiter
-				limiter = rate.NewLimiter(rate.Inf, 5)
-			} else {
-				// Create rate limiter with specified requests per second
-				limiter = rate.NewLimiter(rate.Limit(wp.rateLimitValue), 5)
-			}
-			domainLim = &domainLimiter{
-				limiter:  limiter,
-				lastUsed: time.Now(),
-			}
-			wp.domainLimiters[domain] = domainLim
-			wp.logger.RateLimit(domain, wp.rateLimitValue, "Created rate limiter")
+		limiter := rate.NewLimiter(rate.Limit(wp.rateLimitValue), 5)
+		domainLim = &domainLimiter{
+			limiter:  limiter,
+			lastUsed: time.Now(),
 		}
+		wp.domainLimiters[domain] = domainLim
 		wp.limiterMutex.Unlock()
+		return limiter
 	}
 
 	// Update last used time
@@ -189,24 +188,4 @@ func (wp *WorkerPool) GetDomainCount() int {
 	wp.limiterMutex.RLock()
 	defer wp.limiterMutex.RUnlock()
 	return len(wp.domainLimiters)
-}
-
-func (wp *WorkerPool) GetStats() WorkerPoolStats {
-	return WorkerPoolStats{
-		ActiveWalkers:   wp.activeWalkers.Load(),
-		ActiveTesters:   wp.activeTesters.Load(),
-		DomainCount:     int32(wp.GetDomainCount()),
-		TotalGoroutines: int32(runtime.NumGoroutine()),
-		FilesQueued:     int32(len(wp.filesToWalk)),
-		ResultsQueued:   int32(len(wp.results)),
-	}
-}
-
-type WorkerPoolStats struct {
-	ActiveWalkers   int32
-	ActiveTesters   int32
-	DomainCount     int32
-	TotalGoroutines int32
-	FilesQueued     int32
-	ResultsQueued   int32
 }
