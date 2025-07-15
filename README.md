@@ -6,19 +6,25 @@
 [![GoDoc](https://godoc.org/github.com/sirprodigle/linkpatrol?status.svg)](https://godoc.org/github.com/sirprodigle/linkpatrol)
 [![Build Status](https://img.shields.io/badge/build-passing-brightgreen.svg)](https://github.com/sirprodigle/linkpatrol)
 
-> **A lightning-fast, concurrent web crawler and link checker** 🚀
+> **A lightning-fast, concurrent web crawler and comprehensive link checker** 🚀
 
-LinkPatrol is a high-performance tool designed to crawl websites and validate links. It uses concurrent processing to check thousands of links efficiently, making it perfect for website health monitoring, SEO analysis, and broken link detection.
+LinkPatrol is a high-performance Go-based tool designed to crawl websites and validate all types of links comprehensively. It uses concurrent processing with intelligent caching, rate limiting, and bot detection to efficiently check thousands of links, making it perfect for website health monitoring, SEO analysis, broken link detection, and web accessibility auditing.
 
 ## ✨ Features
 
-- 🔍 **Web Crawling**: Crawls websites and extracts links from HTML pages
-- ⚡ **High Performance**: Concurrent processing with configurable worker pools
-- 🎯 **Smart Caching**: Avoids re-checking previously validated links
-- 🛡️ **Rate Limiting**: Respectful to servers with configurable request rates
-- 📊 **Detailed Reporting**: Clear status indicators and error messages
-- 🔧 **Flexible Configuration**: Command-line flags and config file support
-- 🎨 **Beautiful Output**: Color-coded results with progress indicators
+- 🔍 **Comprehensive Web Crawling**: Crawls websites and extracts links from HTML, CSS, JavaScript, and JSON content
+- 🧪 **Advanced Link Testing**: Tests HTTP/HTTPS URLs, fragments, relative links, and handles bot detection
+- ⚡ **High Performance**: Concurrent processing with configurable worker pools and atomic URL claiming
+- 🎯 **Smart Caching**: Avoids re-checking previously validated links with thread-safe cache management
+- 🛡️ **Intelligent Rate Limiting**: Per-domain rate limiting that respects server resources
+- 🤖 **Bot Detection**: Identifies and handles bot-detection mechanisms (HTTP 429, 999, 403)
+- 🔄 **HTTPS/HTTP Fallback**: Automatically tries HTTP when HTTPS fails
+- 📊 **Real-time Stats**: Live monitoring of active workers, goroutines, and processing statistics
+- 🔧 **Flexible Configuration**: Command-line flags, environment variables, and config file support
+- 🎨 **Beautiful Output**: Color-coded results with dynamic terminal width detection and progress indicators
+- 🔗 **Fragment Validation**: Validates anchor links by checking for target elements in HTML
+- 🚫 **Domain Filtering**: Built-in banned domain and path filtering for security
+- 🎯 **Comprehensive Link Detection**: Supports 15+ different link pattern types including HTML, CSS, JavaScript, and JSON
 
 ## 🚀 Quick Start
 
@@ -40,13 +46,16 @@ go install github.com/sirprodigle/linkpatrol@latest
 
 ```bash
 # Check links on a website
-./linkpatrol -t https://example.com
+./linkpatrol https://example.com
 
-# Enable verbose output
-./linkpatrol -t https://example.com -v
+# Enable verbose output with detailed logging
+./linkpatrol https://example.com -v
 
 # Customize concurrency and rate limiting
-./linkpatrol -t https://example.com -n 16 --tester-concurrency 200 -r 20
+./linkpatrol https://example.com -n 16 -r 20
+
+# High-performance mode with custom timeout
+./linkpatrol https://example.com -n 50 -r 50 --timeout 10s
 ```
 
 ## 📖 Usage Examples
@@ -54,25 +63,31 @@ go install github.com/sirprodigle/linkpatrol@latest
 ### Simple Link Check
 ```bash
 # Check all links on a website
-./linkpatrol -t https://example.com
+./linkpatrol https://example.com
 ```
 
-### Verbose Output
+### Verbose Output with Detailed Logging
 ```bash
-# Get detailed information about each link
-./linkpatrol -t https://example.com -v
+# Get detailed information about each link, worker activity, and processing steps
+./linkpatrol https://example.com -v
 ```
 
 ### High Performance Mode
 ```bash
-# Use high concurrency for faster crawling
-./linkpatrol -t https://example.com -n 32 --tester-concurrency 500 -r 50
+# Use high concurrency for faster crawling of large websites
+./linkpatrol https://example.com -n 100 -r 50 --timeout 30s
 ```
 
 ### Custom Configuration
 ```bash
-# Use custom timeout and rate limiting
-./linkpatrol -t https://example.com --timeout 10s -r 5
+# Use custom timeout and conservative rate limiting
+./linkpatrol https://example.com --timeout 10s -r 5 --no-truncate
+```
+
+### Real-time Monitoring
+```bash
+# Monitor processing with live statistics (non-verbose mode shows real-time stats)
+./linkpatrol https://example.com -n 25 -r 25
 ```
 
 ## ⚙️ Configuration
@@ -81,14 +96,16 @@ go install github.com/sirprodigle/linkpatrol@latest
 
 | Flag | Description | Default |
 |------|-------------|---------|
-| `-t, --target` | Target URL to scan (required) | `` |
-| `-v, --verbose` | Enable verbose logging | `false` |
-| `-n, --concurrency` | Max concurrent web crawlers | `CPU cores × 2` |
-| `--tester-concurrency` | Max concurrent link testers | `100` |
-| `--timeout` | Per-request timeout | `5s` |
-| `-r, --rate` | Max requests per second per domain | `10` |
+| `target` | Target URL to scan (positional argument) | `` |
+| `-v, --verbose` | Enable verbose logging with detailed output | `false` |
+| `-n, --concurrency` | Max concurrent web crawlers and testers | `50` |
+| `--timeout` | Per-request timeout | `30s` |
+| `-r, --rate` | Max requests per second per domain | `20` |
 | `--width` | Terminal width override | `auto-detect` |
 | `--no-truncate` | Don't truncate URLs or error messages | `false` |
+| `-c, --config` | Path to configuration file | `` |
+| `--cpuprofile` | Write CPU profile to file | `` |
+| `--memprofile` | Write memory profile to file | `` |
 
 ### Environment Variables
 
@@ -98,6 +115,8 @@ All flags can be set via environment variables with the `LINKPATROL_` prefix:
 export LINKPATROL_TARGET="https://example.com"
 export LINKPATROL_VERBOSE="true"
 export LINKPATROL_TIMEOUT="10s"
+export LINKPATROL_CONCURRENCY="100"
+export LINKPATROL_RATE="25"
 ```
 
 ### Configuration File
@@ -107,10 +126,11 @@ Create a `linkpatrol.yaml` file in your project root:
 ```yaml
 target: "https://example.com"
 verbose: true
-concurrency: 8
-tester-concurrency: 100
-timeout: 5s
-rate: 10
+concurrency: 50
+timeout: 30s
+rate: 20
+width: 120
+no-truncate: false
 ```
 
 ## 📊 Output Format
@@ -118,43 +138,94 @@ rate: 10
 LinkPatrol provides clear, color-coded output:
 
 ```
-🔗 LinkPatrol Starting
-📁 Scanning URL
-   Found 1 target URL
-🧪 Testing Links
-   https://example.com                    LIVE     ✅      -
-   https://broken-link.com               DEAD     ❌      404 Not Found
-   https://slow-site.com                 TIMEOUT  ⏰      context deadline exceeded
-📊 Results
-   Total entries: 150
-   Found 5 dead links and 2 timeout links
+🚀 LinkPatrol Starting ================================================================================================================================================================
+
+🚶 Active Walkers: 0
+🧪 Active Testers: 0
+🌐 Domain Count: 0
+⚡ Total Goroutines: 115
+✅ Results Obtained: 27
+📋 Results To Test: 0
+📁 Paths To Walk: 0
+
+🚀 Results ==================================================================================================================================================================
+URL                                                                            Status   Emoji  Error                                                                          
+─────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+https://example.com                                                            Live     ✅      -                                                                              
+https://broken-link.com                                                        Dead     ❌      HTTP 404                                                                       
+https://slow-site.com                                                          Timeout  ⏰      context deadline exceeded                                                      
+https://linkedin.com/in/user                                                   Bot      🤖      HTTP 999                                                                       
+─────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+📊 Total entries: 150
+✨ All links are working!
 ```
 
 ### Status Indicators
 
-- ✅ **LIVE**: Link is accessible and working
-- ❌ **DEAD**: Link is broken or inaccessible
-- ⏰ **TIMEOUT**: Request timed out
-- 🔄 **CACHED**: Link was previously checked (in watch mode)
+- ✅ **Live**: Link is accessible and working
+- ❌ **Dead**: Link is broken or inaccessible (HTTP 4xx/5xx)
+- ⏰ **Timeout**: Request timed out
+- 🤖 **Bot**: Bot detection triggered (HTTP 429, 999, 403)
+
+## 🔍 Supported Link Types
+
+LinkPatrol uses advanced regex patterns to detect and validate various types of links:
+
+### HTML Links
+- **Anchor tags**: `<a href="...">` 
+- **Images**: `<img src="...">` and `<img srcset="...">`
+- **Scripts**: `<script src="...">`
+- **Stylesheets**: `<link href="...">`
+- **Data sources**: `data-src`, `data-lazy-src`
+
+### CSS Links
+- **Imports**: `@import "..."`
+- **URLs**: `url(...)` in CSS properties
+
+### JavaScript & JSON
+- **JSON-LD**: URLs in structured data
+- **Raw HTTP/HTTPS**: Direct URL references
+
+### Special Cases
+- **Fragment links**: `#section` (validated against page content)
+- **Relative links**: Resolved against base URL
+- **Email links**: `mailto:` addresses
+- **Telephone links**: `tel:` numbers
+
+### Security Features
+- **Banned domains**: `static.cloudflareinsights.com`
+- **Banned paths**: `/wp-admin/`, `/wp-login.php`, `/cdn-cgi/`
+- **File filtering**: Only follows HTML-like files for crawling
 
 ## 🏗️ Architecture
 
-LinkPatrol uses a multi-layered architecture for optimal performance:
+LinkPatrol uses a sophisticated multi-layered architecture for optimal performance:
 
 ```
 ┌─────────────────┐    ┌─────────────────┐    ┌─────────────────┐
-│   Web Crawler   │────│  Worker Pool    │────│  Link Testers   │
+│   Web Walkers   │────│  Worker Pool    │────│  Link Testers   │
 │                 │    │                 │    │                 │
-│ • HTML Parser   │    │ • Web Crawlers  │    │ • HTTP Clients  │
-│                 │    │ • Concurrency   │    │ • Rate Limiting │
+│ • HTML Parser   │    │ • Concurrency   │    │ • HTTP Clients  │
+│ • Regex Engine  │    │ • Goroutines    │    │ • Bot Detection │
+│ • URL Extraction│    │ • Channels      │    │ • HTTPS Fallback│
 └─────────────────┘    └─────────────────┘    └─────────────────┘
                                 │
                                 ▼
                        ┌─────────────────┐
-                       │     Cache       │
+                       │   Cache System  │
                        │                 │
-                       │ • Results Store │
+                       │ • Atomic Claims │
+                       │ • Thread Safety │
                        │ • Deduplication │
+                       └─────────────────┘
+                                │
+                                ▼
+                       ┌─────────────────┐
+                       │  Rate Limiters  │
+                       │                 │
+                       │ • Per-Domain    │
+                       │ • Token Bucket  │
+                       │ • Respect Robots│
                        └─────────────────┘
 ```
 
@@ -180,15 +251,15 @@ go build -o linkpatrol
 ```
 linkpatrol/
 ├── internal/              # Internal packages
-│   ├── app/              # Main application logic
-│   ├── cache/            # Link result caching
-│   ├── config/           # Configuration management
-│   ├── logger/           # Logging utilities
-│   ├── scanner/          # URL validation logic
-│   ├── tester/           # Link testing logic
-│   ├── walker/           # Web crawling (HTML parsing)
-│   └── workers/          # Worker pool management
-└── main.go              # Application entry point
+│   ├── app/              # Main application logic and orchestration
+│   ├── cache/            # Thread-safe result caching with atomic operations
+│   ├── config/           # Configuration management (flags, env vars, files)
+│   ├── logger/           # Advanced logging with dynamic terminal formatting
+│   ├── tester/           # Link testing with bot detection and fallback
+│   ├── walker/           # Web crawling with comprehensive regex patterns
+│   └── workers/          # Worker pool management and statistics
+├── test_data/            # Test data for development and validation
+└── main.go              # Application entry point with profiling support
 ```
 
 ## 🤝 Contributing
@@ -218,37 +289,47 @@ This project is licensed under the MIT License - see the [LICENSE](LICENSE) file
 
 ## 📈 Performance
 
-LinkPatrol is designed for speed and efficiency:
+LinkPatrol is engineered for maximum speed and efficiency:
 
-- **Concurrent Processing**: Multiple workers scan files and test links simultaneously
-- **Smart Caching**: Avoids re-checking previously validated links
-- **Rate Limiting**: Respectful to servers while maintaining speed
-- **Memory Efficient**: Streams file processing to minimize memory usage
+- **Concurrent Processing**: Configurable worker pools for walkers and testers run simultaneously
+- **Atomic URL Claiming**: Thread-safe deduplication prevents redundant processing
+- **Smart Caching**: Avoids re-checking previously validated links with intelligent cache management
+- **Per-Domain Rate Limiting**: Respects server resources while maintaining optimal throughput
+- **Memory Efficient**: Streams processing with minimal memory footprint
+- **Bot Detection**: Handles anti-bot measures without disrupting legitimate crawling
+- **Connection Pooling**: Reuses HTTP connections for improved performance
 
 ### Benchmarks
 
-On a typical documentation project with 1000+ links:
-- **LinkPatrol**: ~30-60 seconds
-- **Memory usage**: <10MB for most projects
+On a typical website with 1000+ links:
+- **LinkPatrol**: ~15-45 seconds (depending on concurrency settings)
+- **Memory usage**: <15MB for most websites
+- **Concurrent connections**: Up to 2000 idle connections with intelligent reuse
 
 ## 🐛 Troubleshooting
 
 ### Common Issues
 
 **Slow Performance**
-- Increase concurrency: `-n 16 --tester-concurrency 200`
-- Reduce rate limiting: `-r 20`
-- Use caching (enabled by default)
+- Increase concurrency: `-n 100 -r 50`
+- Reduce rate limiting for faster scanning: `-r 100`
+- Use profiling to identify bottlenecks: `--cpuprofile cpu.prof`
 
 **Timeout Errors**
-- Increase timeout: `-t 10s`
-- Check network connectivity
+- Increase timeout: `--timeout 60s`
+- Check network connectivity and DNS resolution
 - Verify target servers are responsive
+- Consider bot detection issues
+
+**Bot Detection Issues**
+- Look for 🤖 indicators in output
+- These are expected for some sites (LinkedIn, etc.)
+- Use `-v` flag to see detailed bot detection logs
 
 **Memory Issues**
-- Reduce concurrency settings
-- Process smaller directories
-- Monitor with `--memprofile`
+- Reduce concurrency settings: `-n 25`
+- Monitor with memory profiling: `--memprofile mem.prof`
+- Check for memory leaks in long-running processes
 
 ### Getting Help
 
