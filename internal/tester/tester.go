@@ -17,6 +17,10 @@ import (
 	"github.com/sirprodigle/linkpatrol/internal/walker"
 )
 
+var bannedDomains = []string{
+	"static.cloudflareinsights.com",
+}
+
 type Tester struct {
 	logger      *logger.Logger
 	cache       *cache.ResultsCache
@@ -48,9 +52,22 @@ func (t *Tester) Test(ctx context.Context, requestData walker.WalkerRequest) {
 	defer t.activeCount.Add(-1)
 
 	// Check if the url is in the cache first
-	if t.cache.HasResult(requestData.Path) {
+	if !t.cache.TryClaim(requestData.Path) {
 		t.logger.Debug("🟡 Cache hit for %s (status: %v)", requestData.Path, t.cache.GetResult(requestData.Path).Status)
 		return
+	}
+
+	// Skip if any banned domain appears in the string
+	for _, banned := range bannedDomains {
+		if strings.Contains(requestData.Path, banned) {
+			t.logger.Debug("Skipping url: %s, it's a banned domain", requestData.Path)
+			t.resultsChan <- cache.CacheEntry{
+				URL:    requestData.Path,
+				Status: cache.Ignore,
+				Error:  "Banned domain",
+			}
+			return
+		}
 	}
 
 	// Handle fragment URLs (like #section) - check if they exist on the original page
@@ -74,7 +91,9 @@ func (t *Tester) Test(ctx context.Context, requestData walker.WalkerRequest) {
 		base, err := url.Parse(requestData.BasePath)
 		if err == nil {
 			resolvedURL = base.ResolveReference(parsed).String()
+			t.logger.Debug("🟦 Resolved URL: %s", resolvedURL)
 		}
+
 	}
 
 	// Add HTTPS default for URLs without protocol
@@ -105,6 +124,15 @@ func (t *Tester) Test(ctx context.Context, requestData walker.WalkerRequest) {
 				Error:  err.Error(),
 			}
 			t.logger.Debug("⏰ %s -> TIMEOUT (%v)", finalURL, err)
+			return
+		}
+		if isBot, err := isBotError(err); isBot {
+			t.resultsChan <- cache.CacheEntry{
+				URL:    finalURL,
+				Status: cache.Bot,
+				Error:  err.Error(),
+			}
+			t.logger.Debug("🤖 %s -> BOT DETECTED (%v)", finalURL, err)
 			return
 		}
 		t.resultsChan <- cache.CacheEntry{
@@ -289,7 +317,7 @@ func (t *Tester) checkFragmentOnPage(ctx context.Context, fragment, basePage str
 		t.resultsChan <- cache.CacheEntry{
 			URL:    fragment,
 			Status: cache.Dead,
-			Error:  fmt.Sprintf("Element with id='%s' not found on page", targetId),
+			Error:  fmt.Sprintf("Element with id='%s' not found on page %s", targetId, basePage),
 		}
 		t.logger.Debug("❌ %s -> DEAD (element not found)", fragment)
 	}
@@ -299,6 +327,22 @@ func (t *Tester) checkFragmentOnPage(ctx context.Context, fragment, basePage str
 func isTimeoutError(err error) (bool, error) {
 	if urlErr, ok := err.(*url.Error); ok {
 		return urlErr.Timeout(), urlErr.Err
+	}
+	return false, nil
+}
+
+func isBotError(err error) (bool, error) {
+	if urlErr, ok := err.(*url.Error); ok {
+		errMsg := urlErr.Err.Error()
+		// Check for common bot-detection HTTP codes
+		if strings.Contains(errMsg, "403") ||
+			strings.Contains(errMsg, "429") ||
+			strings.Contains(errMsg, "999") ||
+			strings.Contains(errMsg, "bot detected") ||
+			strings.Contains(errMsg, "blocked") ||
+			strings.Contains(errMsg, "automated") {
+			return true, urlErr.Err
+		}
 	}
 	return false, nil
 }

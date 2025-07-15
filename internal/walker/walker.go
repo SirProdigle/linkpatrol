@@ -5,6 +5,7 @@ import (
 	"io"
 	"net/http"
 	"net/url"
+	"regexp"
 	"strings"
 	"sync/atomic"
 
@@ -44,26 +45,36 @@ func NewWalker(client *http.Client, resultsCache *cache.ResultsCache, toWalkChan
 	}
 }
 
+var bannedPaths = []string{
+	"/cdn-cgi/",
+	"/wp-admin/",
+	"/wp-login.php",
+}
+
 func (w *Walker) Walk(ctx context.Context, toTest WalkerRequest) {
 
 	w.activeWalkers.Add(1)
 	defer w.activeWalkers.Add(-1)
 
-	if w.cache.HasResult(toTest.Path) {
-		w.logger.Trace("No need to walk url: %s, it's already tested", toTest.Path)
+	// Try to claim this URL atomically - if we can't, another worker is handling it
+	if !w.cache.TryClaim(toTest.Path) {
+		w.logger.Trace("No need to walk url: %s, it's already tested or being processed", toTest.Path)
 		return
 	}
 
-	// Expand to be a more dedicated "ignore list" later on
-	if strings.Contains(toTest.Path, "/cdn-cgi/") {
-		w.logger.Debug("Skipping url: %s, it's a cdn-cgi url", toTest.Path)
-		return
+	// Skip if any banned path appears in the string
+	for _, banned := range bannedPaths {
+		if strings.Contains(toTest.Path, banned) {
+			w.logger.Debug("Skipping url: %s, it's a banned url", toTest.Path)
+			return
+		}
 	}
 
 	w.walkUrl(ctx, toTest)
 }
 
 func (w *Walker) walkUrl(ctx context.Context, toTest WalkerRequest) {
+
 	// Get domain-specific rate limiter
 	// Convert a null basepath to our target base url
 	domain := toTest.BasePath
@@ -95,7 +106,9 @@ func (w *Walker) walkUrl(ctx context.Context, toTest WalkerRequest) {
 	}
 	defer resp.Body.Close()
 
-	w.logger.Debug("Reading body from url %s", toTest.Path)
+	w.logger.Progress("Reading entire body from url %s", toTest.Path)
+
+	// Read entire response body into memory
 	body, err := io.ReadAll(resp.Body)
 	if err != nil {
 		w.logger.Error("Error reading body from url %s: %s", toTest.Path, err)
@@ -107,7 +120,7 @@ func (w *Walker) walkUrl(ctx context.Context, toTest WalkerRequest) {
 		return
 	}
 
-	// If we get body correctly, count as tested
+	// Mark as live since we successfully read the body
 	w.logger.Debug("Sending result to resultsChan for url %s", toTest.Path)
 	w.resultsChan <- cache.CacheEntry{
 		URL:    toTest.Path,
@@ -115,50 +128,104 @@ func (w *Walker) walkUrl(ctx context.Context, toTest WalkerRequest) {
 		Error:  "",
 	}
 
-	w.logger.Debug("Finding matches in body of url %s", toTest.Path)
+	// Process entire body with all regexes
+	bodyText := string(body)
 	regexes := GetRegexes()
+	seenUrls := make(map[string]bool)
 
-	// Do line by line parsing of the body
-	lines := strings.Split(string(body), "\n")
-	for _, line := range lines {
-		lastMatch := ""
-		//w.logger.Trace("Processing line: %s", line)
-		for _, regex := range regexes {
-			matches := regex.FindStringSubmatch(line)
-			if len(matches) > 0 {
-				w.logger.Trace("Found match: %s", matches[0])
-			} else {
+	for regexId, regex := range regexes {
+		matches := regex.FindAllStringSubmatch(bodyText, -1)
+		for _, match := range matches {
+			if len(match) == 0 {
 				continue
 			}
+
 			var matchedUrl string
-			if len(matches) > 1 {
-				// Use capture group (matches[1]) for HTML patterns that extract URLs from attributes
-				matchedUrl = matches[1]
+			if len(match) > 1 {
+				// Use capture group (match[1]) for HTML patterns that extract URLs from attributes
+				matchedUrl = match[1]
 			} else {
-				// Use full match (matches[0]) for patterns that match the URL directly
-				matchedUrl = matches[0]
+				// Use full match (match[0]) for patterns that match the URL directly
+				matchedUrl = match[0]
 			}
 
-			if lastMatch == matchedUrl {
-				w.logger.Debug("Skipping duplicate url: %s", matchedUrl)
+			// Special handling for srcset - extract individual URLs
+			if regexId == ImgSrcsetRegexIdentifier {
+				w.processSrcsetUrls(matchedUrl, toTest, seenUrls, bodyText)
 				continue
 			}
 
-			if w.IsSameDomain(matchedUrl, w.targetBaseUrl) {
-				w.logger.Debug("Sending same domain url to walker: %s", matchedUrl)
-				w.toWalkChan <- WalkerRequest{
-					Path:     matchedUrl,
-					BasePath: toTest.BasePath,
-				}
-				lastMatch = matchedUrl
-			} else {
-				w.logger.Debug("Sending url to tester: %s", matchedUrl)
-				w.toTestChan <- WalkerRequest{
-					Path:     matchedUrl,
-					BasePath: toTest.BasePath,
-				}
-				lastMatch = matchedUrl
+			// Skip duplicates
+			if seenUrls[matchedUrl] {
+				continue
 			}
+			seenUrls[matchedUrl] = true
+
+			w.logger.Trace("Found match: %s on url %s", match[0], toTest.Path)
+			w.processFoundUrl(matchedUrl, toTest, bodyText)
+		}
+	}
+}
+
+// processSrcsetUrls extracts individual URLs from srcset attribute values
+func (w *Walker) processSrcsetUrls(srcsetValue string, toTest WalkerRequest, seenUrls map[string]bool, bodyText string) {
+	// srcset format: "url1 descriptor1, url2 descriptor2, ..."
+	// Extract URLs (everything before whitespace or comma)
+	urls := strings.Split(srcsetValue, ",")
+	for _, urlEntry := range urls {
+		urlEntry = strings.TrimSpace(urlEntry)
+		if urlEntry == "" {
+			continue
+		}
+
+		// Split by whitespace to get just the URL part (before descriptor like "330w" or "2x")
+		parts := strings.Fields(urlEntry)
+		if len(parts) > 0 {
+			url := strings.TrimSpace(parts[0])
+			if url != "" && !seenUrls[url] {
+				seenUrls[url] = true
+				w.logger.Trace("Found srcset URL: %s on url %s", url, toTest.Path)
+				w.processFoundUrl(url, toTest, bodyText)
+			}
+		}
+	}
+}
+
+// processFoundUrl handles a discovered URL
+func (w *Walker) processFoundUrl(matchedUrl string, toTest WalkerRequest, bodyText string) {
+	if w.IsSameDomain(matchedUrl, w.targetBaseUrl) {
+		w.logger.Debug("Sending same domain url to walker: %s", matchedUrl)
+		// Resolve relative URLs using BasePath
+		resolvedURL := matchedUrl
+		if parsed, err := url.Parse(matchedUrl); err == nil && parsed.Host == "" && toTest.BasePath != "" {
+			base, err := url.Parse(toTest.BasePath)
+			if err == nil {
+				resolvedURL = base.ResolveReference(parsed).String()
+				w.logger.Debug("🟦 Resolved URL: %s", resolvedURL)
+			}
+		}
+		w.toWalkChan <- WalkerRequest{
+			Path:     resolvedURL,
+			BasePath: toTest.BasePath,
+		}
+	} else {
+		w.logger.Debug("Sending url to tester: %s", matchedUrl)
+		if strings.HasPrefix(matchedUrl, "#") {
+			// Check directly for an id tag in the body
+			if matched, _ := regexp.Match("id=\""+matchedUrl+"\"", []byte(bodyText)); matched {
+				matchedUrl = toTest.Path + matchedUrl
+				// Store directly in resultsChan
+				w.resultsChan <- cache.CacheEntry{
+					URL:    matchedUrl,
+					Status: cache.Live,
+					Error:  "",
+				}
+				return
+			}
+		}
+		w.toTestChan <- WalkerRequest{
+			Path:     matchedUrl,
+			BasePath: toTest.BasePath,
 		}
 	}
 }
@@ -189,9 +256,8 @@ func (w *Walker) IsSameDomain(target string, baseUrl string) bool {
 		if !strings.Contains(last, ".") {
 			return true
 		}
-		// Check for .html or .htm (case-insensitive)
-		lower := strings.ToLower(last)
-		if strings.HasSuffix(lower, ".html") || strings.HasSuffix(lower, ".htm") {
+		// Check for a dot followed by at least one character (file extension)
+		if idx := strings.LastIndex(last, "."); idx != -1 && idx < len(last)-1 {
 			return true
 		}
 		return false

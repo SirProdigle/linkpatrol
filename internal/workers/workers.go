@@ -2,6 +2,7 @@ package workers
 
 import (
 	"context"
+	"crypto/tls"
 	"net"
 	"net/http"
 	"sync"
@@ -45,19 +46,38 @@ func NewWorkerPool(cache *cache.ResultsCache, concurrency int, timeout time.Dura
 	client := &http.Client{
 		Timeout: timeout,
 		Transport: &http.Transport{
-			MaxIdleConns:        1000,
-			MaxIdleConnsPerHost: 500,
-			MaxConnsPerHost:     500,
-			IdleConnTimeout:     90 * time.Second,
+			MaxIdleConns:        2000,
+			MaxIdleConnsPerHost: 1000,
+			MaxConnsPerHost:     1000,
+			IdleConnTimeout:     120 * time.Second,
+			ForceAttemptHTTP2:   true,
+
+			TLSClientConfig: &tls.Config{
+				InsecureSkipVerify: true,
+				CurvePreferences: []tls.CurveID{
+					tls.X25519,
+					tls.CurveP256,
+				},
+				ClientSessionCache: tls.NewLRUClientSessionCache(1025),
+			},
 
 			TLSHandshakeTimeout:   10 * time.Second,
-			ResponseHeaderTimeout: 5 * time.Second,
-			ExpectContinueTimeout: 1 * time.Second,
+			ResponseHeaderTimeout: 10 * time.Second,
+			ExpectContinueTimeout: 10 * time.Second,
 
 			DisableCompression: true,
 			DialContext: (&net.Dialer{
-				Timeout:   5 * time.Second,
+				Timeout:   30 * time.Second,
 				KeepAlive: 30 * time.Second,
+				Resolver: &net.Resolver{
+					PreferGo: true,
+					Dial: func(ctx context.Context, network, address string) (net.Conn, error) {
+						d := net.Dialer{
+							Timeout: time.Millisecond * 200,
+						}
+						return d.DialContext(ctx, network, "1.1.1.1:53")
+					},
+				},
 			}).DialContext,
 		},
 	}
@@ -83,7 +103,6 @@ func (wp *WorkerPool) Start(ctx context.Context) {
 }
 
 func (wp *WorkerPool) startWalkers(ctx context.Context) {
-
 	for i := 0; i < wp.concurrency; i++ {
 		walker := walker.NewWalker(wp.client, wp.resultsCache, wp.toWalkChan, wp.toTestChan, &wp.activeWalkers, wp.logger, wp.baseUrl, wp, wp.resultsChan)
 		go func() {
@@ -131,6 +150,10 @@ func (wp *WorkerPool) IsIdle() bool {
 
 func (wp *WorkerPool) WaitAndClose() {
 	for {
+		if !wp.logger.IsVerbose() {
+			wp.logger.PrettyPrintStats(wp)
+		}
+
 		if wp.IsIdle() {
 			// Require 2 consecutive idle checks to close
 			time.Sleep(100 * time.Millisecond)
@@ -138,7 +161,7 @@ func (wp *WorkerPool) WaitAndClose() {
 				break
 			}
 		}
-		time.Sleep(1000 * time.Millisecond)
+		time.Sleep(10 * time.Millisecond)
 	}
 
 	close(wp.toTestChan)

@@ -29,7 +29,7 @@ func New(cfg *config.Config) *App {
 
 	// Generate results Channel early so that the worker pool and cache can use it
 	resultsChan := make(chan cache.CacheEntry, 100)
-	toWalkChan := make(chan walker.WalkerRequest, 100)
+	toWalkChan := make(chan walker.WalkerRequest, 10000)
 	toTestChan := make(chan walker.WalkerRequest, 100)
 	log := logger.New(cfg.Verbose, loggerOpts...)
 	cacheInstance := cache.NewResultsCache(resultsChan)
@@ -78,7 +78,9 @@ func (a *App) Run(ctx context.Context) error {
 func (a *App) runNormalMode() error {
 	a.workerPool.WaitAndClose()
 	a.logger.StartSection("Results")
-	a.cache.PrettyPrint(a.logger)
+	// Clean up ignored results
+	a.cache.CleanUpIgnoredResults()
+	a.logger.CacheTable(a.cache.GetResults(), a.config.NoTruncate)
 
 	// Check for failures and exit with appropriate code
 	if a.cache.HasFailures() {
