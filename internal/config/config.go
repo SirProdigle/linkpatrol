@@ -31,9 +31,9 @@ func NewConfig() Config {
 func (c *Config) InitFlags(cmd *cobra.Command) {
 	f := cmd.PersistentFlags()
 	f.StringP("config", "c", "", "path to config file")
-	f.IntP("concurrency", "n", 100, "max concurrent web crawlers")
-	f.DurationP("timeout", "", 5*time.Second, "per-request timeout")
-	f.IntP("rate", "r", 10, "max requests per second per domain")
+	f.IntP("concurrency", "n", 50, "max concurrent web crawlers & testers")
+	f.DurationP("timeout", "", 30*time.Second, "per-request timeout")
+	f.IntP("rate", "r", 20, "max requests per second per domain")
 	f.BoolP("verbose", "v", false, "enable verbose logging")
 	f.IntP("width", "", 0, "terminal width override (0 = auto-detect)")
 	f.BoolP("no-truncate", "", false, "don't truncate URLs or error messages")
