@@ -7,7 +7,13 @@ import (
 	"strings"
 	"syscall"
 	"unsafe"
+
+	"github.com/sirprodigle/linkpatrol/internal/cache"
 )
+
+type Stats interface {
+	GetStatsString(termWidth int) string
+}
 
 // Level represents the logging level
 type Level int
@@ -31,6 +37,13 @@ const (
 	colorMagenta = "\033[35m"
 	colorCyan    = "\033[36m"
 	colorGray    = "\033[90m"
+)
+
+// ANSI control codes
+const (
+	cursorUp   = "\033[%dA" // Move cursor up N lines
+	clearLine  = "\033[2K"  // Clear current line
+	clearToEnd = "\033[0J"  // Clear from cursor to end of screen
 )
 
 // winsize represents terminal window size
@@ -99,6 +112,10 @@ func getTerminalWidth() int {
 	}
 
 	return int(ws.Col)
+}
+
+func (l *Logger) GetTerminalWidth() int {
+	return l.termWidth
 }
 
 // New creates a new logger instance
@@ -277,9 +294,59 @@ type DisplayEntry struct {
 }
 
 // CacheTable displays cache entries in a formatted table
-func (l *Logger) CacheTable(entries []DisplayEntry) {
+func (l *Logger) CacheTable(entries []cache.CacheEntry, truncate bool) {
+
 	if len(entries) == 0 {
 		l.log(l.out, "📭", colorBlue, "No entries in cache")
+		return
+	}
+
+	// Convert cache entries to display entries
+	displayEntries := make([]DisplayEntry, 0, len(entries))
+	for _, entry := range entries {
+		color := colorReset
+		switch entry.Status {
+		case cache.Live:
+			color = colorGreen
+		case cache.Timeout:
+			color = colorYellow
+		case cache.Bot:
+			color = colorMagenta
+		case cache.Dead:
+			color = colorRed
+		}
+
+		emoji := ""
+		switch entry.Status {
+		case cache.Live:
+			emoji = "✅"
+		case cache.Timeout:
+			emoji = "⏰"
+		case cache.Bot:
+			emoji = "🤖"
+		case cache.Dead:
+			emoji = "❌"
+		}
+
+		displayEntries = append(displayEntries, DisplayEntry{
+			URL:    entry.URL,
+			Status: entry.Status.String(),
+			Emoji:  emoji,
+			Error:  entry.Error,
+			Color:  color,
+		})
+	}
+
+	if truncate {
+		// Show each entry in a few lines, not truncating at all
+		for _, entry := range displayEntries {
+			errorMsg := entry.Error
+			if errorMsg == "" {
+				errorMsg = "-"
+			}
+			fmt.Fprintf(l.out, "%s%s %s %s%s %s\n", entry.Color, entry.Emoji, entry.Status, entry.URL, colorReset, errorMsg)
+		}
+		l.log(l.out, "📊", colorBold, "Total entries: %d", len(entries))
 		return
 	}
 
@@ -304,7 +371,7 @@ func (l *Logger) CacheTable(entries []DisplayEntry) {
 	fmt.Fprintf(l.out, "%s%s%s\n", colorGray, strings.Repeat("─", l.termWidth), colorReset)
 
 	// Entries
-	for _, entry := range entries {
+	for _, entry := range displayEntries {
 		errorMsg := entry.Error
 		if errorMsg == "" {
 			errorMsg = "-"
@@ -340,4 +407,21 @@ func (l *Logger) CacheTable(entries []DisplayEntry) {
 func (l *Logger) log(w io.Writer, emoji, color, msg string, args ...any) {
 	formattedMsg := fmt.Sprintf(msg, args...)
 	fmt.Fprintf(w, "%s%s %s%s\n", color, emoji, formattedMsg, colorReset)
+}
+
+func (l *Logger) PrettyPrintStats(stats Stats) {
+	const statsLines = 9
+
+	// Move cursor up by the number of lines we printed last time
+	fmt.Fprintf(l.out, cursorUp, statsLines)
+	// Move cursor to the beginning of the line
+	fmt.Fprint(l.out, "\r")
+	// Clear from cursor to end of screen
+	fmt.Fprint(l.out, clearToEnd)
+
+	// Get the new stats string
+	statsStr := stats.GetStatsString(l.termWidth)
+
+	// Print the new stats
+	fmt.Fprint(l.out, statsStr)
 }
